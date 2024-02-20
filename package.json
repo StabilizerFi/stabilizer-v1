@@ -1,0 +1,12 @@
+{
+  "name": "hardhat-project",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.5"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.1",
+    "@pythnetwork/pyth-evm-js": "^1.30.0",
+    "@pythnetwork/pyth-sdk-solidity": "^2.4.0"
+  }
+}
