@@ -21,8 +21,9 @@ contract StabilizerUSD is Ownable(msg.sender), stabilizerFlashLoan {
     // Other config
     uint256 minimumLiquidationProfit = 1 ether; // Maximum profit for liquidators, minimum profit once loan can be liquidated, in terms of stable
 
-    constructor(address _pyth, bytes32 _priceId)
-    {
+    error InvalidInsertPosition();
+
+    constructor(address _pyth, bytes32 _priceId) {
         pyth = IPyth(_pyth);
         priceId = _priceId;
     }
@@ -78,44 +79,40 @@ contract StabilizerUSD is Ownable(msg.sender), stabilizerFlashLoan {
         uint256 newPriceToLiquidate = getPriceToLiquidate(_USDS, _ETH);
         if (_previousLoan == address(0) && _nextLoan == address(0)) {
             // (0x0, 0x0) - User is saying there is no loans
-            require(
-                data.length == 0,
-                "Stabilizer V1: Sorted loan IDs are invalid."
-            );
+            if (data.length != 0) revert InvalidInsertPosition();
+            
             data.first = msg.sender;
             data.last = msg.sender;
         } else if (_previousLoan == address(0)) {
             // (0x0, _nextLoan) - User is saying their loan is equal to or has the lowest liquidation price
-            require(
-                data.first == _nextLoan &&
-                    data.loans[_nextLoan].priceToLiquidate >=
-                    newPriceToLiquidate,
-                "Stabilizer V1: Sorted loan IDs are invalid."
-            );
+            if (
+                data.first != _nextLoan ||
+                data.loans[_nextLoan].priceToLiquidate < newPriceToLiquidate
+            ) revert InvalidInsertPosition();
+
             data.loans[_nextLoan].previousLoan = msg.sender;
             data.loans[msg.sender].nextLoan = _nextLoan;
             data.first = msg.sender;
         } else if (_nextLoan == address(0)) {
             // (_previousLoan, 0x0) - User is saying their loan is equal to or has the highest liquidation price
-            require(
-                data.last == _previousLoan &&
-                    data.loans[_previousLoan].priceToLiquidate <=
-                    newPriceToLiquidate,
-                "Stabilizer V1: Sorted loan IDs are invalid."
-            );
+            if (
+                data.last != _previousLoan ||
+                data.loans[_previousLoan].priceToLiquidate >
+                newPriceToLiquidate
+            ) revert InvalidInsertPosition();
+
             data.loans[_previousLoan].nextLoan = msg.sender;
             data.loans[msg.sender].previousLoan = _previousLoan;
             data.last = msg.sender;
         } else {
             // (_previousLoan, _nextLoan) - User is saying their loan is in the middle or equal to two other loans
-            require(
-                data.loans[_previousLoan].nextLoan == _nextLoan &&
-                    data.loans[_previousLoan].priceToLiquidate <=
-                    newPriceToLiquidate &&
-                    data.loans[_nextLoan].priceToLiquidate >=
-                    newPriceToLiquidate,
-                "Stabilizer V1: Sorted loan IDs are invalid."
-            );
+            if (
+                data.loans[_previousLoan].nextLoan != _nextLoan ||
+                data.loans[_previousLoan].priceToLiquidate >
+                newPriceToLiquidate ||
+                data.loans[_nextLoan].priceToLiquidate < newPriceToLiquidate
+            ) revert InvalidInsertPosition();
+
             data.loans[_previousLoan].nextLoan = msg.sender;
             data.loans[_nextLoan].previousLoan = msg.sender;
             data.loans[msg.sender].nextLoan = _nextLoan;
@@ -127,29 +124,16 @@ contract StabilizerUSD is Ownable(msg.sender), stabilizerFlashLoan {
         data.length += 1;
     }
 
-    function payLoan(uint256 _USDS) public {
-        require(
-            balanceOf(msg.sender) >= _USDS,
-            "Stabilizer V1: Insufficient USDS."
-        );
-        require(_USDS != 0, "Stabilizer V1: USDS must be non-zero.");
-        require(
-            data.loans[msg.sender].USDS >= _USDS,
-            "Stabilizer V1: Payment must be less than or equal to debt."
-        );
-        require(data.loans[msg.sender].ETH != 0, "Stabilizer V1: No CDP open.");
-        data.loans[msg.sender].USDS -= _USDS;
-        if (data.loans[msg.sender].USDS == 0) {
-            uint256 etherToPay = data.loans[msg.sender].ETH;
-            data.loans[msg.sender].ETH = 0;
-            payable(msg.sender).transfer(etherToPay);
-        }
+    function removeLoan(uint256 _USDS) public {
+        //check if loan is open
+        //check if user has the balance
+        //check if cdp is open
+        //check if payment is greater than debt
     }
 
     function liquidateLoan() public {}
 
-    function redeemEther(uint256 _USDS) public {}
-
+    function redeem(uint256 _USDS) public {}
 
     // View/pure functions
     function getLoanDetails(address user) public view returns (Loan memory) {
@@ -206,17 +190,21 @@ contract StabilizerUSD is Ownable(msg.sender), stabilizerFlashLoan {
         }
     }
 
+    /*
+     * @dev Returns the price of the collateral in which the loan could be liquidated
+     */
     function getPriceToLiquidate(uint256 _USDS, uint256 _ETH)
         public
         view
         returns (uint256)
     {
-        // returns the maximum price of ETH in relation to USDS for a loan to be liquidated
         return (((getMinimumCollateral(_USDS))) * 10**18) / _ETH;
     }
 
+    /*
+     * @dev Returns the minimum amount of collateral in terms of the stable
+     */
     function getMinimumCollateral(uint256 _USDS) public view returns (uint256) {
-        // returns the minimum amount of collateral in terms of the stable
         uint256 minimumCollateral = (_USDS + minimumLiquidationProfit);
         if (minimumCollateral <= (_USDS * 11) / 10) {
             minimumCollateral = (_USDS * 11) / 10;
@@ -224,13 +212,29 @@ contract StabilizerUSD is Ownable(msg.sender), stabilizerFlashLoan {
         return (minimumCollateral);
     }
 
+    /*
+     * @dev Returns the value of the collateral in terms of the stable
+     */
     function getUSDValue(uint256 _ETH, uint256 _price)
         internal
         pure
         returns (uint256)
     {
-        // (10**18 * 10**18) / 10**18 = 10**18
         return ((_ETH * _price) / 10**18);
+    }
+
+    /*
+     * @dev Returns the first loan in the list with the lowest liquidation price ("best")
+     */
+    function getFirst() external view returns (address) {
+        return data.first;
+    }
+
+    /*
+     * @dev Returns the last loan in the list with the highest liquidation price ("worst")
+     */
+    function getLast() external view returns (address) {
+        return data.last;
     }
 
     function convertToUint(PythStructs.Price memory price, uint8 targetDecimals)
