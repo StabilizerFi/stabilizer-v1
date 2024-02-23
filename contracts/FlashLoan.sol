@@ -95,7 +95,7 @@ contract stabilizerFlashLoan is IERC3156FlashLender, ERC20 {
             return true;
         } else if (token == address(0)) {
             uint256 fee = _flashFee(token, amount);
-            flashLoanDebt[msg.sender] += amount + fee;
+            flashLoanDebt[msg.sender] += (amount + fee);
             (bool sent, ) = payable(msg.sender).call{value: amount}("");
             if (!sent) revert SendFailure();
             if (
