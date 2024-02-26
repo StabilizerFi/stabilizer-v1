@@ -9,7 +9,16 @@ const accounts = [
 
 const config: HardhatUserConfig = {
   defaultNetwork: "fantomTestnet",
-  solidity: "0.8.20",
+  solidity: {
+    version: "0.8.20",
+    settings: {
+      viaIR: true,
+      optimizer: {
+       enabled: true,
+       runs: 200,
+       },
+      },
+     },
   networks: {
     fantomTestnet: {
       url: "https://rpc.testnet.fantom.network",
